@@ -1,6 +1,6 @@
 # Azure Kubernetes Service (AKS) Networking Guide
 
-This guide explores different networking configurations in AKS using various Container Network Interface (CNI) options. Each configuration is tested and documented with specific characteristics and limitations.
+This guide explores different networking configurations in AKS using various Container Network Interface (CNI) options. Each configuration is tested and documented with specific characteristics and limitations. Also it experiments with Calico Cloud Security Solution. <https://calicocloud.io>
 
 ## Table of Contents
 - [Azure Kubernetes Service (AKS) Networking Guide](#azure-kubernetes-service-aks-networking-guide)
