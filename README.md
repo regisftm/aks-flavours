@@ -1,21 +1,78 @@
-# AKS Flavours
+# Azure Kubernetes Service (AKS) Networking Guide
 
-Installation with different CNI's
+This guide explores different networking configurations in AKS using various Container Network Interface (CNI) options. Each configuration is tested and documented with specific characteristics and limitations.
 
-|Parameter| Usage | Comments|
-| --- | --- | --- |
-| --network-dataplane | The network dataplane to use. Allowed values: **azure**, **cilium**. | Network dataplane used in the Kubernetes cluster. Specify "azure" to use the Azure dataplane (default) or "cilium" to enable Cilium dataplane.|
-| --network-plugin | The Kubernetes network plugin to use.  Allowed values: **azure**, **kubenet**, **none**.| Specify "azure" for routable pod IPs from VNET, "kubenet" for non-routable pod IPs with an overlay network, or "none" for no networking configured.|
-| --network-plugin-mode | The network plugin mode to use. Allowed values: **overlay**.| Used to control the mode the network plugin should operate in. For example, "overlay" used with **--network-plugin=azure** will use an overlay network (non-VNET IPs) for pods in the cluster.|
-| --network-policy | (PREVIEW) The Kubernetes network policy to use.| Using together with "azure" network plugin. Specify "azure" for Azure network policy manager, "calico" for calico network policy controller, "cilium" for Azure CNI Overlay powered by Cilium. Defaults to "" (network policy disabled). |
+## Table of Contents
+- [Azure Kubernetes Service (AKS) Networking Guide](#azure-kubernetes-service-aks-networking-guide)
+  - [Table of Contents](#table-of-contents)
+  - [Network Configuration Parameters](#network-configuration-parameters)
+  - [CNI Options](#cni-options)
+    - [kubelet CNI](#kubelet-cni)
+    - [Azure CNI](#azure-cni)
+    - [Azure CNI - Overlay](#azure-cni---overlay)
+    - [Azure CNI - Calico](#azure-cni---calico)
+    - [Azure CNI - Cilium](#azure-cni---cilium)
+    - [Azure CNI - Cilium - Overlay](#azure-cni---cilium---overlay)
+  - [BYOCNI - Calico - Overlay](#byocni---calico---overlay)
+    - [BYOCNI - Calico](#byocni---calico)
+  - [Testing](#testing)
+  - [Clean up](#clean-up)
+  - [Contributing](#contributing)
 
-## kubelet CNI
+
+## Network Configuration Parameters
+
+| Parameter | Allowed Values | Description |
+|-----------|---------------|-------------|
+| `--network-dataplane` | `azure`, `cilium` | Controls the network dataplane. Use `azure` for default or `cilium` for Cilium dataplane. |
+| `--network-plugin` | `azure`, `kubenet`, `none` | Determines the CNI plugin. `azure` for VNET-routable IPs, `kubenet` for overlay network, `none` for BYO CNI. |
+| `--network-plugin-mode` | `overlay` | Controls CNI mode. `overlay` with Azure CNI uses non-VNET IPs for pods. |
+| `--network-policy` | `azure`, `calico`, `cilium`, `""` | (PREVIEW) Enables network policies. Works with Azure CNI. Default is disabled (`""`). |
+
+
+## CNI Options
+
+Before starting creating the AKS clusters, let's create a Azure Resource Group to accomodate all of them.
+
+1. Define the variables.
+
+   ```bash
+   RG='aks-flavours'
+   LOCATION='westus2'
+   K8S_VERSION=1.30
+   ```
+
+2. Create the Resource Group in the desired Region.
+
+   ```bash
+   az group create \
+     --name $RG \
+     --location $LOCATION
+   ```
+
+### kubelet CNI
+
+Kubenet is a basic network plugin that provides simple and lightweight networking for Kubernetes clusters.
+
+**Key Characteristics:**
+
+- ❌ Network policies not supported
+- ❌ Not supported by Calico Cloud
+- 🔍 Uses bridge CNI plugin
+- 📡 NAT-based networking
+- 🌐 Pod IPs are not directly routable outside the cluster
+
+**Use Cases:**
+
+- Development and testing environments
+- Small-scale clusters
+- Scenarios where pod-to-pod communication across nodes is limited
+- Budget-conscious deployments (uses less IP addresses)
+
+**Configuration:**
 
 ```bash
-RG='rmartins'
-LOCATION='westus2'
 CLUSTER_NAME='azcni-kubenet'
-K8S_VERSION=1.29
 ```
 
 ```bash
@@ -51,13 +108,62 @@ Fri Aug 16 2024 14:37:58 GMT-0600 (Mountain Daylight Time)
 2024-08-16T20:38:41+00:00 [error] Detected plugin bridge, it is currently not supported
 ```
 
-# Azure CNI
+**CNI Configuration Details:**
+
+```json
+{
+   "cniVersion":"0.3.0",
+   "name":"azure",
+   "plugins":[
+      {
+         "type":"bridge",
+         "bridge":"cbr0",
+         "mtu": 1500,
+         "addIf":"eth0",
+         "isGateway":true,
+         "ipMasq":true,
+         "hairpinMode":false,
+         "ipam":{
+            "type":"host-local",
+            "ranges":[[{"subnet":"10.244.0.0/24"}]]
+         }
+      }
+   ]
+}
+```
+
+**Limitations:**
+
+- Limited to 400 nodes
+- No support for Windows node pools
+- Network policies not available
+- Pod IPs are not routable outside the cluster
+- Higher latency due to NAT
+
+### Azure CNI
+
+Azure CNI provides advanced networking capabilities with full integration into Azure Virtual Networks.
+
+**Key Characteristics:**
+
+- ✅ Network policies work after Calico Cloud connection
+- 🔄 Traffic uses pod IP as source
+- ✅ Direct pod IP accessibility from outside
+- 🔍 Uses azure-vnet CNI plugin
+- 🌐 Pod IPs are routable within VNET
+
+**Use Cases:**
+
+- Production environments
+- Enterprise deployments
+- Scenarios requiring direct pod connectivity
+- Integration with other Azure services
+- Multi-tenant clusters
+
+**Configuration:**
 
 ```bash
-RG='rmartins'
-LOCATION='westus2'
 CLUSTER_NAME='azcni-azure'
-K8S_VERSION=1.29
 ```
 
 ```bash
@@ -131,6 +237,22 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 }
 ```
 
+**Features:**
+
+- Direct pod connectivity
+- Network policy support
+- Windows node pool support
+- Integration with Azure Load Balancer
+- Support for multiple node pools
+- Private cluster support
+
+**Limitations:**
+
+- Requires more IP addresses
+- Higher planning overhead for IP address management
+- Network policies require additional configuration
+
+
 > [!WARNING]
 > - Network policies do not work by default.
 > - Network policies works after connect to Calico Cloud.
@@ -139,13 +261,30 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 > - Traffic goes out with pod ip address as source ip.
 > - Also receive traffic on its own ip address from outside.
 
-## Azure CNI - Overlay
+### Azure CNI - Overlay
+
+Azure CNI Overlay mode provides a balance between the simplicity of Kubenet and the advanced features of Azure CNI.
+
+**Key Characteristics:**
+
+- ✅ Network policies work after Calico Cloud connection
+- 🔄 Traffic uses node IP as source
+- ❌ Pod IPs not directly accessible
+- 🔍 Uses azure-vnet CNI with overlay mode
+- 🌐 Efficient IP address usage
+
+**Use Cases:**
+
+- Large-scale clusters
+- Scenarios with limited IP address space
+- Multi-tenant environments
+- Development and staging environments
+- Hybrid connectivity scenarios
+
+**Configuration:**
 
 ```bash
-RG='rmartins'
-LOCATION='westus2'
 CLUSTER_NAME='azcni-azure-overlay'
-K8S_VERSION=1.29
 ```
 
 ```bash
@@ -199,6 +338,8 @@ VMSSNAME=$(az vmss list --output table | grep -i $RG | grep -i $CLUSTER_NAME | a
 az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/net.d/*" --command-id RunShellScript --instance-id 0 --query 'value[0].message' --output table
 ```
 
+**CNI Configuration Details:**
+
 ```json
 {
 	"cniVersion": "0.3.0",
@@ -232,6 +373,18 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 }
 ```
 
+**Features:**
+- Efficient IP address utilization
+- Simplified network planning
+- Network policy support
+- Windows node pool support
+- Support for multiple node pools
+
+**Limitations:**
+- Pod IPs not directly accessible from outside cluster
+- Additional overlay network overhead
+- SNAT required for external communication
+
 > [!WARNING]
 > - Network policies do not work by default.
 > - Network policies works after connect to Calico Cloud.
@@ -240,13 +393,30 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 > - Traffic goes out with the node ip address as source ip.
 > - Traffic is not routeable to the pod using its IP address.
 
-## Azure CNI - Calico
+### Azure CNI - Calico
+
+Azure CNI with Calico provides advanced networking with robust network policy capabilities.
+
+**Key Characteristics:**
+
+- ✅ Network policies work by default
+- ✅ Calico Cloud integration supported
+- 🔄 Traffic uses pod IP as source
+- ✅ Direct pod IP accessibility
+- 🔍 Uses azure-vnet CNI with Calico policy enforcement
+
+**Use Cases:**
+
+- Security-focused deployments
+- Multi-tenant clusters
+- Environments requiring micro-segmentation
+- Compliance-driven deployments
+- Zero-trust network architectures
+
+**Configuration:**
 
 ```bash
-RG='rmartins'
-LOCATION='westus2'
 CLUSTER_NAME='azcni-azure-calico'
-K8S_VERSION=1.29
 ```
 
 ```bash
@@ -293,6 +463,8 @@ VMSSNAME=$(az vmss list --output table | grep -i $RG | grep -i $CLUSTER_NAME | a
 az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/net.d/*" --command-id RunShellScript --instance-id 0 --query 'value[0].message' --output table
 ```
 
+**CNI Configuration Details:**
+
 ```json
 {
    "cniVersion":"0.3.0",
@@ -317,6 +489,21 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 }
 ```
 
+**Features:**
+
+- Advanced network policy capabilities
+- Fine-grained access controls
+- Network flow logs
+- Integration with external security tools
+- Support for egress gateway
+- Host endpoint protection
+
+**Limitations:**
+
+- Higher resource overhead
+- More complex configuration
+- Requires understanding of Calico policies
+
 > [!WARNING]
 > - Network policies work by default.
 > - Network policies works after connect to Calico Cloud.
@@ -326,16 +513,31 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 > - Also receive traffic on its own ip address from outside.
 
 
-## Azure CNI - Cilium
+### Azure CNI - Cilium
+
+Azure CNI with Cilium provides eBPF-based networking with advanced security and observability features.
+
+**Key Characteristics:**
+- ✅ Network policies work by default
+- ✅ Advanced eBPF features
+- 🔄 Traffic uses pod IP as source
+- ✅ Direct pod IP accessibility
+- 🔍 Uses Cilium CNI with Azure IPAM
+
+**Use Cases:**
+- High-performance environments
+- Security-critical deployments
+- Service mesh implementations
+- Environments requiring deep observability
+- Large-scale clusters
+
+**Configuration:**
 
 Create a Vnet with 2 subnets - 1 for hosts, another for pods.
-Create the cluster, referencing the node subnet using --vnet-subnet-id and the pod subnet using --pod-subnet-id and enabling cilium dataplane w/o overlay.
+Create the cluster, referencing the node subnet using `--vnet-subnet-id` and the pod subnet using `--pod-subnet-id` and enabling cilium dataplane w/o overlay.
 
 ```bash
-RG='rmartins'
-LOCATION='westus2'
 CLUSTER_NAME='azcni-azure-cilium'
-K8S_VERSION=1.29
 POD_CIDR='192.168.0.0/16'
 ```
 
@@ -386,6 +588,8 @@ VMSSNAME=$(az vmss list --output table | grep -i $RG | grep -i $CLUSTER_NAME | a
 az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/net.d/*" --command-id RunShellScript --instance-id 0 --query 'value[0].message' --output table
 ```
 
+**CNI Configuration Details:**
+
 ```json
 {
 	"cniVersion": "0.3.1",
@@ -403,6 +607,21 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 }
 ```
 
+**Features:**
+
+- eBPF-based networking
+- Advanced observability
+- Layer 7 policy enforcement
+- Transparent encryption
+- Service mesh capabilities
+- Advanced load balancing
+
+**Limitations:**
+
+- Higher system requirements
+- More complex troubleshooting
+- Limited Windows support
+
 While connecting to Calico Cloud
 
 ```console
@@ -417,13 +636,10 @@ While connecting to Calico Cloud
 > - Traffic goes out with pod ip address as source ip.
 > - Also receive traffic on its own ip address from outside.
 
-## Azure CNI - Cilium - Overlay
+### Azure CNI - Cilium - Overlay
 
 ```bash
-RG='rmartins'
-LOCATION='westus2'
 CLUSTER_NAME='azcni-azure-cilium-overlay'
-K8S_VERSION=1.29
 POD_CIDR='192.168.0.0/16'
 ```
 
@@ -620,18 +836,13 @@ While connecting to Calico Cloud
 > - Traffic goes out with the node ip address as source ip.
 > - Traffic is not routeable to the pod using its IP address.
 
-
-
-## BYOCNI - Calico
+### BYOCNI - Calico
 
 Create a v-net for the node and the pods.
 192.168.0.0/16
 
 ```bash
-RG='rmartins'
-LOCATION='westus2'
 CLUSTER_NAME='azcni-azure-byocni-calico'
-K8S_VERSION=1.29
 POD_CIDR='192.168.0.0/16'
 ```
 
@@ -651,8 +862,6 @@ az aks create \
   --enable-managed-identity \
   --output table
 ```
-
-
 
 Getting credentials
 
@@ -750,7 +959,6 @@ While connecting to Calico Cloud
 2024-08-22T16:15:01+00:00 [info] cluster_migratable:end - Cluster can be migrated
 
 2024-08-22T16:17:51Z    ERROR    Reconciler error    {"controller": "installer", "controllerGroup": "operator.calicocloud.io", "controllerKind": "Installer", "Installer": {"name":"default","namespace":"calico-cloud"}, "namespace": "calico-cloud", "name": "default", "reconcileID": "4416dffa-594d-457e-961c-b24dfff04e85", "error": "an error occurred while running the Calico Cloud installer: exit status 1"} sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).reconcileHandler /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.17.2/pkg/internal/controller/controller.go:329  sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).processNextWorkItem /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.17.2/pkg/internal/controller/controller.go:266 sigs.k8s.io/controller-runtime/pkg/internal/controller.(*Controller).Start.func2.2 /go/pkg/mod/sigs.k8s.io/controller-runtime@v0.17.2/pkg/internal/controller/controller.go:227
-
 ```
 
 > [!WARNING]
@@ -758,7 +966,6 @@ While connecting to Calico Cloud
 
 > [!NOTE]
 > - Need to test again.
-
 
 
 ## Testing
@@ -793,3 +1000,11 @@ az aks delete --resource-group $RG --name $CLUSTER_NAME
 
 > [!NOTE]
 > If you created the vm for testing, you will need to delete the RG from the Azure console.
+
+## Contributing
+
+Feel free to contribute to this guide by:
+1. Testing additional configurations
+2. Documenting new findings
+3. Reporting issues
+4. Suggesting improvements
