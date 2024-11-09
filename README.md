@@ -50,6 +50,8 @@ Before starting creating the AKS clusters, let's create a Azure Resource Group t
      --location $LOCATION
    ```
 
+---
+
 ### kubelet CNI
 
 Kubenet is a basic network plugin that provides simple and lightweight networking for Kubernetes clusters.
@@ -139,6 +141,8 @@ Fri Aug 16 2024 14:37:58 GMT-0600 (Mountain Daylight Time)
 - Network policies not available
 - Pod IPs are not routable outside the cluster
 - Higher latency due to NAT
+
+---
 
 ### Azure CNI
 
@@ -260,6 +264,8 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 > [!NOTE]
 > - Traffic goes out with pod ip address as source ip.
 > - Also receive traffic on its own ip address from outside.
+
+---
 
 ### Azure CNI - Overlay
 
@@ -393,6 +399,8 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 > - Traffic goes out with the node ip address as source ip.
 > - Traffic is not routeable to the pod using its IP address.
 
+---
+
 ### Azure CNI - Calico
 
 Azure CNI with Calico provides advanced networking with robust network policy capabilities.
@@ -512,6 +520,7 @@ az vmss run-command invoke -g $VMSSGROUP -n $VMSSNAME --scripts "cat /etc/cni/ne
 > - Traffic goes out with pod ip address as source ip.
 > - Also receive traffic on its own ip address from outside.
 
+---
 
 ### Azure CNI - Cilium
 
@@ -636,6 +645,8 @@ While connecting to Calico Cloud
 > - Traffic goes out with pod ip address as source ip.
 > - Also receive traffic on its own ip address from outside.
 
+---
+
 ### Azure CNI - Cilium - Overlay
 
 ```bash
@@ -718,6 +729,8 @@ While connecting to Calico Cloud
 > [!NOTE]
 > - Traffic goes out with the node ip address as source ip.
 > - Traffic is not routeable to the pod using its IP address.
+
+---
 
 ## BYOCNI - Calico - Overlay
 
@@ -835,6 +848,8 @@ While connecting to Calico Cloud
 > [!NOTE]
 > - Traffic goes out with the node ip address as source ip.
 > - Traffic is not routeable to the pod using its IP address.
+
+---
 
 ### BYOCNI - Calico
 
@@ -967,7 +982,6 @@ While connecting to Calico Cloud
 > [!NOTE]
 > - Need to test again.
 
-
 ## Testing
 
 Test vm <-> pod traffic
@@ -1004,6 +1018,7 @@ az aks delete --resource-group $RG --name $CLUSTER_NAME
 ## Contributing
 
 Feel free to contribute to this guide by:
+
 1. Testing additional configurations
 2. Documenting new findings
 3. Reporting issues
